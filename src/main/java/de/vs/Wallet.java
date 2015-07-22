@@ -2,14 +2,30 @@ package de.vs;
 
 import akka.actor.ActorRef;
 import de.vs.events.*;
+import de.vs.events.snapshot.EventMarkerMessage;
+import de.vs.events.snapshot.EventSendFinishSnapshot;
 
 import java.util.*;
 
 public class Wallet extends AbstractWallet {
 
+  private Snapshot snapshot;
+  private boolean recordingSnapshot;
+  private ActorRef joiningNode;
+
+  private List<Snapshot> snapshots;
+
   public Wallet(String name) {
     super(name);
     initWallet();
+    snapshots = new ArrayList<>();
+  }
+
+  public Wallet(String name, ActorRef joiningNode) {
+    super(name);
+    initWallet();
+    this.joiningNode = joiningNode;
+    joiningNode.tell(new EventJoin(name), self());
   }
 
   private void initWallet() {
@@ -22,7 +38,18 @@ public class Wallet extends AbstractWallet {
   }
 
   public void onReceive(Object message) {
-    if (message instanceof EventAcceptJoin) {
+    if (recordingSnapshot && snapshot.isWaiting()) {
+      snapshot.handleMessages(message, sender());
+    } else {
+      if (snapshot != null && !snapshot.isWaiting()) {
+        joiningNode.tell(new EventSendFinishSnapshot(snapshot), self());
+      }
+      recordingSnapshot = false;
+    }
+
+    if (message instanceof EventMarkerMessage) {
+      handleMarkerMessage();
+    } else if (message instanceof EventAcceptJoin) {
       System.out.println("I'm accepted");
       handleAcceptJoin((EventAcceptJoin) message);
     } else if (message instanceof EventJoin) {
@@ -46,14 +73,35 @@ public class Wallet extends AbstractWallet {
       handleLeave((EventLeave) message);
     }  else if (message instanceof EventGoDown) {
       handleGoDown();
+    } else if (message instanceof EventSendFinishSnapshot) {
+      handleSendFinishSnapshot((EventSendFinishSnapshot) message);
     } else {
-      unhandled(message);
+        unhandled(message);
+      }
+
+  }
+
+  private void handleSendFinishSnapshot(EventSendFinishSnapshot message) {
+    snapshots.add(message.getSnapshot());
+  }
+
+
+  private void handleMarkerMessage() {
+    if (!recordingSnapshot) {
+      List<ActorRef> waitingNeighbors = (List<ActorRef>) knownNeighbors.values();
+      waitingNeighbors.remove(sender());
+      snapshot = new Snapshot(getName(), getAmount(), waitingNeighbors);
+      this.notifyAll(new EventMarkerMessage());
+      recordingSnapshot = true;
     }
   }
 
-  private void handleGoDown() {
 
-    System.out.println(sender());
+  private List<ActorRef> knownNeighborsToWaitingList() {
+    return (List< ActorRef>) knownNeighbors.values();
+  }
+
+  private void handleGoDown() {
     notifyAll(new EventLeave(getName()));
     context().system().shutdown();
   }
