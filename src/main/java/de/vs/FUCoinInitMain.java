@@ -13,7 +13,7 @@ public class FUCoinInitMain {
   public static void main(String[] args) {
     Config config = ConfigFactory.load().getConfig("InitWalletSys");
     ActorSystem actorSystem = ActorSystem.create("FUcoin", config);
-    Props props = Props.create(Wallet.class , "FirstNode");
+    Props props = Props.create(Wallet.class , "initNode");
     ActorRef initNode = actorSystem.actorOf(props, "initNode");
 
     ActorRef[] actorRefs = new ActorRef[5];
