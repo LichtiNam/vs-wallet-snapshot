@@ -24,7 +24,6 @@ public class Snapshot implements Serializable {
     recordedMessages = new HashMap<>();
   }
 
-
   public void handleMessages(Object message, ActorRef sender) {
     if (message instanceof EventMarkerMessage) {
       waitingToResponse.remove(sender);
@@ -39,8 +38,15 @@ public class Snapshot implements Serializable {
     }
   }
 
-
   public boolean isWaiting() {
     return waitingToResponse.size() > 0;
+  }
+
+  public int getAmount() {
+    return amount;
+  }
+
+  public String getName() {
+    return name;
   }
 }

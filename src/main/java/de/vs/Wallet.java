@@ -6,11 +6,13 @@ import de.vs.events.snapshot.EventMarkerMessage;
 import de.vs.events.snapshot.EventSendFinishSnapshot;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Wallet extends AbstractWallet {
 
   private Snapshot snapshot;
   private boolean recordingSnapshot;
+  private boolean sendSnapshot = true;
   private ActorRef joiningNode;
 
   private List<Snapshot> snapshots;
@@ -19,17 +21,19 @@ public class Wallet extends AbstractWallet {
     super(name);
     initWallet();
     snapshots = new ArrayList<>();
+    joiningNode = self();
   }
 
-  public Wallet(String name, ActorRef joiningNode) {
+  public Wallet(String name, int amount, ActorRef joiningNode) {
     super(name);
+    setAmount(amount);
     initWallet();
     this.joiningNode = joiningNode;
     joiningNode.tell(new EventJoin(name), self());
   }
 
   private void initWallet() {
-    knownNeighbors = new HashMap<>();
+    knownNeighbors = new ConcurrentHashMap<>();
     backedUpNeighbors = new HashMap<>();
   }
 
@@ -38,19 +42,23 @@ public class Wallet extends AbstractWallet {
   }
 
   public void onReceive(Object message) {
-    if (recordingSnapshot && snapshot.isWaiting()) {
+    if (recordingSnapshot) {
       snapshot.handleMessages(message, sender());
-    } else {
-      if (snapshot != null && !snapshot.isWaiting()) {
-        joiningNode.tell(new EventSendFinishSnapshot(snapshot), self());
-      }
+    }
+    if (snapshot != null && !snapshot.isWaiting() && sendSnapshot) {
+        if (joiningNode == self()) {
+          snapshots.add(snapshot);
+        } else {
+          joiningNode.tell(new EventSendFinishSnapshot(snapshot), self());
+        }
+      sendSnapshot = false;
       recordingSnapshot = false;
     }
 
     if (message instanceof EventMarkerMessage) {
       handleMarkerMessage();
     } else if (message instanceof EventAcceptJoin) {
-      System.out.println("I'm accepted");
+      System.out.println(getName() + ": I'm accepted");
       handleAcceptJoin((EventAcceptJoin) message);
     } else if (message instanceof EventJoin) {
       System.out.println(((EventJoin) message).getName() + " is joint");
@@ -71,34 +79,41 @@ public class Wallet extends AbstractWallet {
       handleTransaction((EventTransaction) message);
     } else if (message instanceof EventLeave) {
       handleLeave((EventLeave) message);
-    }  else if (message instanceof EventGoDown) {
+    } else if (message instanceof EventGoDown) {
       handleGoDown();
     } else if (message instanceof EventSendFinishSnapshot) {
       handleSendFinishSnapshot((EventSendFinishSnapshot) message);
     } else {
-        unhandled(message);
-      }
+      unhandled(message);
+    }
 
   }
 
   private void handleSendFinishSnapshot(EventSendFinishSnapshot message) {
     snapshots.add(message.getSnapshot());
-  }
-
-
-  private void handleMarkerMessage() {
-    if (!recordingSnapshot) {
-      List<ActorRef> waitingNeighbors = (List<ActorRef>) knownNeighbors.values();
-      waitingNeighbors.remove(sender());
-      snapshot = new Snapshot(getName(), getAmount(), waitingNeighbors);
-      this.notifyAll(new EventMarkerMessage());
-      recordingSnapshot = true;
+    if (snapshots.size() == (knownNeighbors.size() + 1)) {
+      printGlobalSnapshot();
     }
   }
 
+  private void printGlobalSnapshot() {
+    System.out.println("\nSnapshot\n--------\n");
+    for (Snapshot snapshot : snapshots) {
+      System.out.println(snapshot.getName() + " have amount: " + snapshot.getAmount());
+    }
+  }
 
-  private List<ActorRef> knownNeighborsToWaitingList() {
-    return (List< ActorRef>) knownNeighbors.values();
+  private void handleMarkerMessage() {
+    if (!recordingSnapshot && snapshot == null) {
+      List<ActorRef> waitingNeighbors = new ArrayList<>(knownNeighbors.values());
+      waitingNeighbors.remove(sender());
+      snapshot = new Snapshot(getName(), getAmount(), waitingNeighbors);
+      notifyAll(new EventMarkerMessage());
+      recordingSnapshot = true;
+    }
+    if (!knownNeighbors.containsValue(sender())) {
+      sender().tell(new EventMarkerMessage(), self());
+    }
   }
 
   private void handleGoDown() {
@@ -165,33 +180,8 @@ public class Wallet extends AbstractWallet {
   }
 
   private void handleJoin(EventJoin message) {
-    HashMap<String, ActorRef> someNeighbors = new HashMap<>();
-    if (knownNeighbors.size() < 5) {
-      someNeighbors = knownNeighbors;
-    } else {
-      for (String str : listOfRandomNumbers(knownNeighbors.keySet(), 5)) {
-        someNeighbors.put(str, knownNeighbors.get(str));
-      }
-    }
-    getSender().tell(new EventAcceptJoin(someNeighbors), self());
-  }
-
-  private List<String> listOfRandomNumbers(Set<String> keySet, int count) {
-    Random random = new Random();
-    String[] keySetArray = (String[]) keySet.toArray();
-    List<String> rnd = new ArrayList<>();
-    int max = keySet.size();
-    int maxCount;
-    maxCount = max < count ? max : count;
-    int input;
-    for (int i = 0; i < maxCount; i++) {
-      input = random.nextInt(max + 1);
-      while (!rnd.contains(keySetArray[input])) {
-        input = random.nextInt(max + 1);
-      }
-      rnd.add(keySetArray[input]);
-    }
-    return rnd;
+    getSender().tell(new EventAcceptJoin(knownNeighbors), self());
+    knownNeighbors.put(message.getName(), sender());
   }
 
   private void handleAcceptJoin(EventAcceptJoin message) {
@@ -200,9 +190,9 @@ public class Wallet extends AbstractWallet {
   }
 
   private void notifyAll(Object event) {
-      for (ActorRef actorRef : knownNeighbors.values()) {
-        actorRef.tell(event, self());
-      }
+    for (ActorRef actorRef : knownNeighbors.values()) {
+      actorRef.tell(event, self());
+    }
   }
 
   public void updateAmount(int amount) {

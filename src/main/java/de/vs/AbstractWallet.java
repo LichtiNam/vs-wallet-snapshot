@@ -6,14 +6,14 @@ import akka.actor.UntypedActor;
 
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class AbstractWallet extends UntypedActor implements Serializable {
 
   private final String name;
   private int amount;
 
-  public transient HashMap<String, ActorRef> knownNeighbors;
-  public transient HashMap<String, ActorRef> localNeighbors;
+  public transient ConcurrentHashMap<String, ActorRef> knownNeighbors;
   public transient HashMap<String, AbstractWallet> backedUpNeighbors;
 
   public AbstractWallet(String name) {
