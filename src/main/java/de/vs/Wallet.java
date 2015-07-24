@@ -46,11 +46,12 @@ public class Wallet extends AbstractWallet {
       snapshot.handleMessages(message, sender());
     }
     if (snapshot != null && !snapshot.isWaiting() && sendSnapshot) {
-        if (joiningNode == self()) {
-          snapshots.add(snapshot);
-        } else {
-          joiningNode.tell(new EventSendFinishSnapshot(snapshot), self());
-        }
+      consoleLogging(getName() + ": Snapshot finished.");
+      if (joiningNode == self()) {
+        snapshots.add(snapshot);
+      } else {
+        joiningNode.tell(new EventSendFinishSnapshot(snapshot), self());
+      }
       sendSnapshot = false;
       recordingSnapshot = false;
     }
@@ -58,10 +59,10 @@ public class Wallet extends AbstractWallet {
     if (message instanceof EventMarkerMessage) {
       handleMarkerMessage();
     } else if (message instanceof EventAcceptJoin) {
-      System.out.println(getName() + ": I'm accepted");
+      consoleLogging(getName() + ": I'm accepted.");
       handleAcceptJoin((EventAcceptJoin) message);
     } else if (message instanceof EventJoin) {
-      System.out.println(((EventJoin) message).getName() + " is joint");
+      consoleLogging(((EventJoin) message).getName() + " is joint.");
       handleJoin((EventJoin) message);
     } else if (message instanceof EventFoundMyWallet) {
       handleFoundMyWallet((EventFoundMyWallet) message);
@@ -99,12 +100,14 @@ public class Wallet extends AbstractWallet {
   private void printGlobalSnapshot() {
     System.out.println("\nSnapshot\n--------\n");
     for (Snapshot snapshot : snapshots) {
-      System.out.println(snapshot.getName() + " have amount: " + snapshot.getAmount());
+      consoleLogging(snapshot.getName() + " have amount: " + snapshot.getAmount());
     }
   }
 
   private void handleMarkerMessage() {
+    consoleLogging(getName() + ": Receive marker message from " + sender().path().name());
     if (!recordingSnapshot && snapshot == null) {
+      consoleLogging(getName() + ": Start Snapshot");
       List<ActorRef> waitingNeighbors = new ArrayList<>(knownNeighbors.values());
       waitingNeighbors.remove(sender());
       snapshot = new Snapshot(getName(), getAmount(), waitingNeighbors);
@@ -113,7 +116,12 @@ public class Wallet extends AbstractWallet {
     }
     if (!knownNeighbors.containsValue(sender())) {
       sender().tell(new EventMarkerMessage(), self());
+      printMarker(sender().path().name());
     }
+  }
+
+  private void printMarker(String sender) {
+    consoleLogging(getName() + ": send marker message to " + sender);
   }
 
   private void handleGoDown() {
@@ -191,11 +199,18 @@ public class Wallet extends AbstractWallet {
 
   private void notifyAll(Object event) {
     for (ActorRef actorRef : knownNeighbors.values()) {
+      if (event instanceof EventMarkerMessage) {
+        printMarker(actorRef.path().name());
+      }
       actorRef.tell(event, self());
     }
   }
 
   public void updateAmount(int amount) {
     setAmount(getAmount() + amount);
+  }
+
+  private void consoleLogging(String log) {
+    System.out.println(log);
   }
 }
