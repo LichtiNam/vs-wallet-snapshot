@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
 public class FUCoinInitMain {
   public static void main(String[] args) {
     Config config = ConfigFactory.load().getConfig("InitWalletSys");
-    ActorSystem actorSystem = ActorSystem.create("FUcoin", config);
+    ActorSystem actorSystem = ActorSystem.create("FUCoin", config);
     Props props = Props.create(Wallet.class , "initNode");
     ActorRef initNode = actorSystem.actorOf(props, "initNode");
 
